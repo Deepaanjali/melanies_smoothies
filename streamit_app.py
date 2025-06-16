@@ -11,7 +11,8 @@ st.write("Choose the fruits you want in your custom Smoothie!")
 
 # Input for smoothie name
 name_on_order = st.text_input('Name on Smoothie:')
-st.write('The name on your Smoothie will be:', name_on_order)
+if name_on_order:
+    st.write('The name on your Smoothie will be:', name_on_order)
 
 # Connect to Snowflake
 cnx = st.connection("snowflake")
@@ -39,8 +40,8 @@ if ingredients_list:
         ingredients_string += fruit_chosen + ' '
 
         # Safe lookup of SEARCH_ON
-        matching_row = pd_df.loc[pd_df['FRUIT_NAME'] == fruit_chosen]
-        if not matching_row.empty and 'SEARCH_ON' in matching_row:
+        matching_row = pd_df[pd_df['FRUIT_NAME'] == fruit_chosen]
+        if not matching_row.empty and 'SEARCH_ON' in matching_row.columns:
             search_on = matching_row['SEARCH_ON'].iloc[0]
         else:
             search_on = fruit_chosen  # fallback
@@ -57,7 +58,16 @@ if ingredients_list:
             response = requests.get(api_url, timeout=10)
             response.raise_for_status()
             sf_data = response.json()
-            st.dataframe(data=sf_data, use_container_width=True)
+
+            # Convert response to dataframe if it's a list or dict
+            if isinstance(sf_data, dict):
+                sf_df = pd.DataFrame([sf_data])
+            elif isinstance(sf_data, list):
+                sf_df = pd.DataFrame(sf_data)
+            else:
+                sf_df = pd.DataFrame({"Message": ["Unexpected API response format"]})
+
+            st.dataframe(data=sf_df, use_container_width=True)
         except Exception as e:
             st.error(f"Could not fetch data for {fruit_chosen}. Error: {str(e)}")
 
@@ -67,9 +77,9 @@ if ingredients_list:
         try:
             insert_stmt = f""" 
                 INSERT INTO smoothies.public.orders(ingredients, name_on_order)
-                VALUES ('{ingredients_string.strip()}', '{name_on_order}')
+                VALUES (%s, %s)
             """
-            session.sql(insert_stmt).collect()
+            session.sql(insert_stmt, params=(ingredients_string.strip(), name_on_order)).collect()
             st.success(f'Your Smoothie is ordered, {name_on_order}!', icon="✅")
         except Exception as e:
             st.error(f"Failed to submit order. Error: {str(e)}")
